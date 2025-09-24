@@ -1,0 +1,87 @@
+export const GH_API = "https://api.github.com";
+export const MAX_CONCURRENCY = 8;
+export const MAX_RETRIES = 4;
+export const RETRY_BASE_MS = 400;
+export const MAX_TEXT_BLOB_BYTES = 5 * 1024 * 1024;
+export const AVERAGE_REQUEST_LATENCY_MS = 350;
+export const OUT_DIR = "out";
+export const PROGRESS_UPDATE_INTERVAL_MS = 150;
+
+export const TEXT_EXTENSIONS = new Set(
+  [
+    ".txt",
+    ".md",
+    ".markdown",
+    ".mdx",
+    ".gitignore",
+    ".gitattributes",
+    ".yml",
+    ".yaml",
+    ".json",
+    ".jsonc",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".css",
+    ".scss",
+    ".less",
+    ".html",
+    ".htm",
+    ".xml",
+    ".svg",
+    ".py",
+    ".rb",
+    ".go",
+    ".rs",
+    ".java",
+    ".kt",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".dockerfile",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".properties",
+    ".env",
+    ".sql",
+    ".r",
+    ".lua",
+    ".pl",
+    ".scala",
+    ".hs",
+  ].map((extension) => extension.toLowerCase())
+);
+
+export const SKIP_EXTENSIONS = new Set(
+  [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".tiff",
+    ".tif",
+    ".webp",
+    ".svgz",
+    ".dcm",
+    ".mp3",
+    ".wav",
+    ".flac",
+    ".ogg",
+    ".aac",
+    ".mp4",
+    ".mov",
+    ".m4v",
+    ".avi",
+    ".mkv",
+  ].map((extension) => extension.toLowerCase())
+);
