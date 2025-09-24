@@ -1,6 +1,6 @@
 # GitHub Repository to Single File
 
-A TypeScript CLI that fetches a GitHub repository and concatenates all text-like files into one consolidated text document. The tool favours modular design, SOLID principles, and minimal side effects while streaming results into the `out/` directory.
+A TypeScript CLI that fetches a GitHub repository and concatenates all text-like files into one consolidated text document. The tool streams results into the `out/` directory.
 
 ## Prerequisites
 
