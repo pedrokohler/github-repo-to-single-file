@@ -6,16 +6,28 @@ function extractExtension(path: string): string | null {
   return lastDot >= 0 ? lower.slice(lastDot) : null;
 }
 
+function isLockFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  const base = lower.replace(/^.*[\\/]/, "");
+  if (base === "lockfile" || base.startsWith("lockfile.")) return true;
+  if (base.endsWith(".lock") || base.endsWith(".lockfile")) return true;
+  if (base.includes("-lock.")) return true;
+  if (base === "yarn.lock" || base === "pnpm-lock.yaml" || base === "pnpm-lock.yml") return true;
+  return false;
+}
+
 export function hasSkippedExtension(path: string): boolean {
+  if (isLockFile(path)) return true;
   const ext = extractExtension(path);
   return Boolean(ext && SKIP_EXTENSIONS.has(ext));
 }
 
 export function looksTexty(path: string, bytes: Uint8Array): boolean {
+  if (hasSkippedExtension(path)) return false;
+
   const ext = extractExtension(path);
-  if (ext) {
-    if (SKIP_EXTENSIONS.has(ext)) return false;
-    if (TEXT_EXTENSIONS.has(ext)) return true;
+  if (ext && TEXT_EXTENSIONS.has(ext)) {
+    return true;
   }
 
   const sample = bytes.subarray(0, Math.min(bytes.length, 2048));

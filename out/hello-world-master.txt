@@ -1,0 +1,62 @@
+# Repository: michael-reece/hello-world
+# Default branch: master
+# Files included: text-like files up to 5 MB each.
+
+
+================================================================================
+FILE: bluestyle.css
+================================================================================
+body
+{
+    background-color: lightblue;
+}
+
+h1
+{
+    color: navy;
+    margin-left: 20px;
+}
+
+================================================================================
+FILE: index.htm
+================================================================================
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8"> 
+        <title>Hello World</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="bluestyle.css">
+    </head>
+    <body>
+        <h1>Hello World!</h1>
+        <div>
+            <img src="img_hello_world.jpg" alt="Hello World from Space"
+                style="width: 100%; max-width: 640px">
+        </div>
+        <p>This is the first file in my W3Schools learning Git repository.</p>
+        <p>This line of code is here to show how merging works...</p>
+        <div>
+            <img src="img_hello_git.jpg" alt="Hello Git" 
+                style="width: 100%; max-width: 640px">
+        </div>
+    </body>
+</html>
+
+================================================================================
+FILE: README.md
+================================================================================
+# hello-world
+
+Hello World repository for Git tutorial
+
+This is an example repository for the Git tutorial on https://www.w3schools.com
+
+This tutorial focuses mainly on Git and using GitHub, remotely.
+
+This repository is built step by step in the tutorial.
+
+It now includes steps from the GitHub tutorial, as well.
+
+
+# Summary: included=3, skippedBinary=0, skippedLarge=0, skippedExtension=2, total=5

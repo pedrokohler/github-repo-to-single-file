@@ -1,6 +1,6 @@
 import { PROGRESS_UPDATE_INTERVAL_MS } from "./config.js";
 
-export type ProgressState = "included" | "skipped";
+export type ProgressState = "included" | "skipped" | "cached";
 
 export type ProgressUpdate = {
   processed: number;
@@ -15,20 +15,25 @@ export class ProgressPrinter {
   private lastRenderTimestamp = 0;
   private lastUpdate: ProgressUpdate | null = null;
   private started = false;
+  private label: string;
 
   constructor(
     private readonly stream: NodeJS.WriteStream = process.stdout,
-    private readonly now: () => number = Date.now
-  ) {}
+    private readonly now: () => number = Date.now,
+    label = "Processing"
+  ) {
+    this.label = label;
+  }
 
-  start(total: number): void {
+  start(total: number, label = this.label): void {
+    this.label = label;
     this.total = Math.max(total, 0);
     this.processed = 0;
     this.lastUpdate = null;
     this.started = true;
 
     if (!this.stream.isTTY) {
-      this.stream.write(`Processing ${this.total} files...\n`);
+      this.stream.write(`${this.label} ${this.total} items...\n`);
     } else {
       this.render(true);
     }
@@ -67,6 +72,14 @@ export class ProgressPrinter {
     this.started = false;
   }
 
+  setTotal(total: number): void {
+    this.total = Math.max(total, this.processed);
+    if (!this.started) return;
+    if (this.stream.isTTY) {
+      this.render(true);
+    }
+  }
+
   private render(force = false): void {
     const percent = this.total === 0 ? 100 : Math.floor((this.processed / this.total) * 100);
     const barLength = 24;
@@ -75,7 +88,7 @@ export class ProgressPrinter {
     const latestPath = this.lastUpdate?.path ?? "";
     const latestState = this.lastUpdate?.state ?? "pending";
     const summary = `${this.processed}/${this.total}`;
-    const line = `Processing [${bar}] ${summary} (${percent}%) ${latestState}: ${latestPath}`;
+    const line = `${this.label} [${bar}] ${summary} (${percent}%) ${latestState}: ${latestPath}`;
 
     const width = this.stream.columns ?? line.length;
     const padded = line.padEnd(width);

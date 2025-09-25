@@ -83,5 +83,17 @@ export const SKIP_EXTENSIONS = new Set(
     ".m4v",
     ".avi",
     ".mkv",
+    ".zip",
+    ".gz",
+    ".gzip",
+    ".tgz",
+    ".tar",
+    ".rar",
+    ".7z",
+    ".xz",
+    ".bz2",
+    ".lock",
+    ".lock.json",
+    ".lockfile",
   ].map((extension) => extension.toLowerCase())
 );

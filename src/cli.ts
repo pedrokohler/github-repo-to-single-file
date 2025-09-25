@@ -6,6 +6,7 @@ import {
   describeOutput,
   exportRepositoryToSingleFile,
   loadRepositoryOutline,
+  type OutputFormat,
 } from "./exporter.js";
 import { resolveGitHubToken } from "./env.js";
 import {
@@ -15,6 +16,12 @@ import {
 } from "./statistics.js";
 import type { RateLimit } from "./types.js";
 import { MAX_CONCURRENCY } from "./config.js";
+import { countCachedFiles } from "./checkpoint.js";
+
+export type CliOptions = {
+  repoUrl: string;
+  format: OutputFormat;
+};
 
 function formatSeconds(seconds: number): string {
   if (seconds <= 0) return "under a second";
@@ -57,13 +64,17 @@ async function promptForConfirmation(question: string): Promise<boolean> {
 }
 
 function logOutlineDetails(
-  outline: Awaited<ReturnType<typeof loadRepositoryOutline>>
+  outline: Awaited<ReturnType<typeof loadRepositoryOutline>>,
+  cachedEligible: number,
+  pendingDownloads: number
 ): void {
   console.log(`Repository: ${outline.coordinates.owner}/${outline.repoName}`);
   console.log(`Default branch: ${outline.branch}`);
   console.log(
     `Discovered ${outline.blobs.length} blobs (` +
       `${outline.eligibleBlobs.length} candidates, ` +
+      `${cachedEligible} cached, ` +
+      `${pendingDownloads} to download, ` +
       `${outline.skippedLarge} skipped for size, ` +
       `${outline.skippedExtension} skipped by extension).`
   );
@@ -76,17 +87,19 @@ function logOutlineDetails(
 
 function logPlanningSummary(
   eligibleCount: number,
+  cachedEligible: number,
+  pendingDownloads: number,
   plannedTotal: number,
   durationSeconds: number,
   rateLimit: RateLimit
 ): void {
   console.log(
-    `Planned API requests: total=${plannedTotal} (prefetch=${PREFETCH_REQUESTS}, blob downloads=${eligibleCount}).`
+    `Planned API requests: total=${plannedTotal} (prefetch=${PREFETCH_REQUESTS}, pending blob downloads=${pendingDownloads}, cached reused=${cachedEligible}).`
   );
   console.log(
-    `Estimated completion time: ${formatSeconds(
+    `Estimated download time: ${formatSeconds(
       durationSeconds
-    )} with concurrency ${MAX_CONCURRENCY}.`
+    )} with concurrency ${MAX_CONCURRENCY} for ${pendingDownloads} pending files.`
   );
   console.log(
     `GitHub core quota: ${formatRateLimit(rateLimit)}; ${formatRemainingLimit(
@@ -109,12 +122,57 @@ function warnAboutQuota(rateLimit: RateLimit, required: number): void {
   );
 }
 
-export async function runCli(): Promise<void> {
-  const repoUrl = process.argv[2];
-  if (!repoUrl) {
-    console.error(
-      "Usage: npm run fetch -- https://github.com/owner/repo (GITHUB_TOKEN sourced from .env)"
+export function parseArguments(argv: string[]): CliOptions {
+  let format: OutputFormat = "text";
+  const positional: string[] = [];
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+
+    if (arg === "--pdf") {
+      format = "pdf";
+      continue;
+    }
+
+    if (arg.startsWith("--format")) {
+      const [flag, valueCandidate] = arg.includes("=")
+        ? arg.split("=", 2)
+        : [arg, argv[++i]];
+      if (!valueCandidate) {
+        throw new Error("Missing value for --format");
+      }
+      if (valueCandidate !== "text" && valueCandidate !== "pdf") {
+        throw new Error(`Unsupported format: ${valueCandidate}`);
+      }
+      format = valueCandidate;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      throw new Error(`Unknown option: ${arg}`);
+    }
+
+    positional.push(arg);
+  }
+
+  if (positional.length === 0) {
+    throw new Error(
+      "Usage: npm run fetch -- [--pdf|--format=pdf] https://github.com/owner/repo"
     );
+  }
+
+  return {
+    repoUrl: positional[0],
+    format,
+  };
+}
+
+export async function runCli(): Promise<void> {
+  let options: CliOptions;
+  try {
+    options = parseArguments(process.argv.slice(2));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 2;
     return;
   }
@@ -123,17 +181,33 @@ export async function runCli(): Promise<void> {
   const client = new GitHubClient(token);
 
   console.log("Preparing repository outline...");
-  const outline = await loadRepositoryOutline(client, repoUrl);
+  const outline = await loadRepositoryOutline(client, options.repoUrl);
   const rateLimit = await client.getRateLimit();
 
-  logOutlineDetails(outline);
+  const cachedEligible = await countCachedFiles(
+    outline,
+    outline.eligibleBlobs.map((blob) => blob.path)
+  );
+  const pendingDownloads = Math.max(
+    outline.eligibleBlobs.length - cachedEligible,
+    0
+  );
+
+  logOutlineDetails(outline, cachedEligible, pendingDownloads);
 
   const eligibleCount = outline.eligibleBlobs.length;
-  const plannedTotal = calculatePlannedRequestTotal(eligibleCount);
-  const durationSeconds = estimateDurationSeconds(eligibleCount);
+  const plannedTotal = calculatePlannedRequestTotal(pendingDownloads);
+  const durationSeconds = estimateDurationSeconds(pendingDownloads);
 
-  logPlanningSummary(eligibleCount, plannedTotal, durationSeconds, rateLimit);
-  warnAboutQuota(rateLimit, eligibleCount);
+  logPlanningSummary(
+    eligibleCount,
+    cachedEligible,
+    pendingDownloads,
+    plannedTotal,
+    durationSeconds,
+    rateLimit
+  );
+  warnAboutQuota(rateLimit, pendingDownloads);
 
   const proceed = await promptForConfirmation("Proceed with download? [y/N]");
   if (!proceed) {
@@ -142,15 +216,33 @@ export async function runCli(): Promise<void> {
   }
 
   const progress = new ProgressPrinter();
-  progress.start(eligibleCount);
+  progress.start(eligibleCount, "Downloading");
 
-  const result = await exportRepositoryToSingleFile(
-    client,
-    outline,
-    (update) => {
-      progress.update(update);
-    }
-  );
+  const pdfPrinter =
+    options.format === "pdf"
+      ? new ProgressPrinter(undefined, undefined, "Generating PDF")
+      : null;
+
+  const pdfCallbacks = pdfPrinter
+    ? {
+        start: (total: number) => pdfPrinter.start(total, "Generating PDF"),
+        update: (processed: number, total: number) =>
+          pdfPrinter.update({
+            processed,
+            total,
+            path: "",
+            state: "included",
+          }),
+        setTotal: (total: number) => pdfPrinter.setTotal(total),
+        finish: () => pdfPrinter.finish(),
+      }
+    : undefined;
+
+  const result = await exportRepositoryToSingleFile(client, outline, {
+    onProgress: (update) => progress.update(update),
+    format: options.format,
+    pdfProgress: pdfCallbacks,
+  });
 
   progress.finish();
   console.log(describeOutput(result));

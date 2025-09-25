@@ -5,6 +5,7 @@ import {
   looksTexty,
   hasSkippedExtension,
 } from "../src/text.js";
+import { mapWithConcurrency } from "../src/concurrency.js";
 import {
   calculatePlannedRequestTotal,
   estimateDurationSeconds,
@@ -50,6 +51,10 @@ describe("text helpers", () => {
     expect(looksTexty("scan.dcm", bytes)).toBe(false);
     expect(hasSkippedExtension("cover.png")).toBe(true);
     expect(hasSkippedExtension("scan.dcm")).toBe(true);
+    expect(hasSkippedExtension("package-lock.json")).toBe(true);
+    expect(hasSkippedExtension("nested/yarn.lock")).toBe(true);
+    expect(hasSkippedExtension("archive.tar.gz")).toBe(true);
+    expect(hasSkippedExtension("bundle.zip")).toBe(true);
   });
 
   it("removes newlines inserted by GitHub", () => {
@@ -117,5 +122,18 @@ describe("progress printer", () => {
     printer.finish();
 
     expect(stream.chunks.some((chunk) => chunk.includes("2/2"))).toBe(true);
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("resolves values with the provided concurrency", async () => {
+    const calls: number[] = [];
+    const results = await mapWithConcurrency([1, 2, 3, 4], 2, async (value) => {
+      calls.push(value);
+      return value * 2;
+    });
+
+    expect(results).toEqual([2, 4, 6, 8]);
+    expect(calls.length).toBe(4);
   });
 });

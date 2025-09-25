@@ -27,14 +27,33 @@ export class GitHubClient {
   }
 
   private async request<T>(path: string, attempt = 1): Promise<T> {
-    const response = await fetch(`${GH_API}${path}`, {
-      headers: this.headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${GH_API}${path}`, {
+        headers: this.headers,
+      });
+    } catch (error) {
+      if (attempt <= MAX_RETRIES) {
+        await delay(RETRY_BASE_MS * attempt);
+        return this.request<T>(path, attempt + 1);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Network error contacting GitHub after ${attempt} attempts: ${message}`);
+    }
 
-    if (response.status === 403 && attempt <= MAX_RETRIES) {
-      const reset = Number(response.headers.get("x-ratelimit-reset")) * 1000;
-      const waitFor = Math.max(reset - Date.now(), RETRY_BASE_MS * attempt);
-      await delay(waitFor);
+    const remainingHeader = response.headers.get("x-ratelimit-remaining");
+    const remaining = remainingHeader === null ? Number.NaN : Number(remainingHeader);
+    if (response.status === 403 && !Number.isNaN(remaining) && remaining <= 0) {
+      const resetRaw = response.headers.get("x-ratelimit-reset");
+      const resetTime = resetRaw ? new Date(Number(resetRaw) * 1000).toISOString() : "unknown reset";
+      throw new Error(
+        `GitHub API rate limit exceeded. Please retry after ${resetTime}.`
+      );
+    }
+
+    const shouldRetry = response.status === 429 || response.status >= 500;
+    if (shouldRetry && attempt <= MAX_RETRIES) {
+      await delay(RETRY_BASE_MS * attempt);
       return this.request<T>(path, attempt + 1);
     }
 

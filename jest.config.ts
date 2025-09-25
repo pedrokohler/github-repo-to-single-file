@@ -15,6 +15,7 @@ const config: Config = {
       },
     ],
   },
+  testPathIgnorePatterns: ["/node_modules/", "/out/"],
   collectCoverageFrom: ["main.ts", "src/**/*.ts"],
 };
 
