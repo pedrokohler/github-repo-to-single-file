@@ -19,6 +19,7 @@ import type {
   ExportSummary,
   FileExport,
   GitTreeItem,
+  GitTreeResponse,
   RepoCoordinates,
 } from "./types.js";
 import type { ProgressState } from "./progress.js";
@@ -45,6 +46,7 @@ export type ProgressCallback = (args: {
 export type RepositoryOutline = {
   coordinates: RepoCoordinates;
   repoName: string;
+  defaultBranch: string;
   branch: string;
   blobs: GitTreeItem[];
   eligibleBlobs: GitTreeItem[];
@@ -54,6 +56,10 @@ export type RepositoryOutline = {
 };
 
 export type OutputFormat = "text" | "pdf";
+
+export type LoadRepositoryOutlineOptions = {
+  branch?: string;
+};
 
 export function parseRepoUrl(input: string): RepoCoordinates {
   try {
@@ -82,19 +88,35 @@ export function parseRepoUrl(input: string): RepoCoordinates {
 
 export async function loadRepositoryOutline(
   client: GitHubClient,
-  repoUrl: string
+  repoUrl: string,
+  options: LoadRepositoryOutlineOptions = {}
 ): Promise<RepositoryOutline> {
   const coordinates = parseRepoUrl(repoUrl);
   const repository = await client.getRepository(
     coordinates.owner,
     coordinates.repo
   );
-  const branch = repository.default_branch;
-  const tree = await client.getTree(
-    coordinates.owner,
-    coordinates.repo,
-    branch
-  );
+  const sanitizedBranch = options.branch?.trim();
+  if (sanitizedBranch !== undefined && sanitizedBranch.length === 0) {
+    throw new Error("Branch name cannot be empty");
+  }
+  const branch = sanitizedBranch ?? repository.default_branch;
+  let tree: GitTreeResponse;
+  try {
+    tree = await client.getTree(
+      coordinates.owner,
+      coordinates.repo,
+      branch
+    );
+  } catch (error) {
+    if (sanitizedBranch !== undefined) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to load branch "${branch}" for ${coordinates.owner}/${coordinates.repo}: ${message}`
+      );
+    }
+    throw error instanceof Error ? error : new Error(String(error));
+  }
   const blobs = tree.tree.filter((entry) => entry.type === "blob");
   const filteredByExtension = blobs.filter(
     (blob) => !hasSkippedExtension(blob.path)
@@ -107,6 +129,7 @@ export async function loadRepositoryOutline(
   return {
     coordinates,
     repoName: repository.name,
+    defaultBranch: repository.default_branch,
     branch,
     blobs,
     eligibleBlobs,
@@ -226,9 +249,13 @@ async function collectTextFiles(
 }
 
 function buildHeader(outline: RepositoryOutline): string {
+  const branchLine =
+    outline.branch === outline.defaultBranch
+      ? `# Branch (default): ${outline.branch}\n`
+      : `# Branch: ${outline.branch} (default: ${outline.defaultBranch})\n`;
   return (
     `# Repository: ${outline.coordinates.owner}/${outline.repoName}\n` +
-    `# Default branch: ${outline.branch}\n` +
+    branchLine +
     `# Files included: text-like files up to ${Math.round(
       MAX_TEXT_BLOB_BYTES / 1024 / 1024
     )} MB each.\n` +

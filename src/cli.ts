@@ -25,6 +25,7 @@ import { countCachedFiles } from "./checkpoint.js";
 export type CliOptions = {
   repoUrl: string;
   format: OutputFormat;
+  branch?: string;
 };
 
 function formatSeconds(seconds: number): string {
@@ -73,7 +74,11 @@ function logOutlineDetails(
   pendingDownloads: number
 ): void {
   console.log(`Repository: ${outline.coordinates.owner}/${outline.repoName}`);
-  console.log(`Default branch: ${outline.branch}`);
+  const branchDetail =
+    outline.branch === outline.defaultBranch
+      ? `${outline.branch} (default)`
+      : `${outline.branch} (default: ${outline.defaultBranch})`;
+  console.log(`Branch: ${branchDetail}`);
   console.log(
     `Discovered ${outline.blobs.length} blobs (` +
       `${outline.eligibleBlobs.length} candidates, ` +
@@ -136,6 +141,7 @@ function createPdfProgressCallbacks(
 
 export function parseArguments(argv: string[]): CliOptions {
   let format: OutputFormat = "text";
+  let branch: string | undefined;
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -160,6 +166,17 @@ export function parseArguments(argv: string[]): CliOptions {
       continue;
     }
 
+    if (arg === "--branch" || arg === "-b" || arg.startsWith("--branch")) {
+      const [flag, valueCandidate] = arg.includes("=")
+        ? arg.split("=", 2)
+        : [arg, argv[++i]];
+      if (!valueCandidate) {
+        throw new Error("Missing value for --branch");
+      }
+      branch = valueCandidate;
+      continue;
+    }
+
     if (arg.startsWith("--")) {
       throw new Error(`Unknown option: ${arg}`);
     }
@@ -176,6 +193,7 @@ export function parseArguments(argv: string[]): CliOptions {
   return {
     repoUrl: positional[0],
     format,
+    branch,
   };
 }
 
@@ -193,7 +211,9 @@ export async function runCli(): Promise<void> {
   const client = new GitHubClient(token);
 
   console.log("Preparing repository outline...");
-  const outline = await loadRepositoryOutline(client, options.repoUrl);
+  const outline = await loadRepositoryOutline(client, options.repoUrl, {
+    branch: options.branch,
+  });
   const rateLimit = await client.getRateLimit();
 
   const cachedEligible = await countCachedFiles(

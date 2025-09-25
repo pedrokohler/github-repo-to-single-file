@@ -28,6 +28,36 @@ describe("parseArguments", () => {
     );
   });
 
+  it("leaves branch undefined when not provided", () => {
+    expect(
+      parseArguments(["https://github.com/acme/repo"]).branch
+    ).toBeUndefined();
+  });
+
+  it("accepts the --branch=feature option", () => {
+    expect(
+      parseArguments(["--branch=feature", "https://github.com/acme/repo"]).branch
+    ).toBe("feature");
+  });
+
+  it("accepts the --branch feature syntax", () => {
+    expect(
+      parseArguments(["--branch", "feature", "https://github.com/acme/repo"]).branch
+    ).toBe("feature");
+  });
+
+  it("accepts the -b feature shorthand", () => {
+    expect(
+      parseArguments(["-b", "feature", "https://github.com/acme/repo"]).branch
+    ).toBe("feature");
+  });
+
+  it("requires a value for --branch", () => {
+    expect(() => parseArguments(["--branch"])).toThrow(
+      /Missing value for --branch/
+    );
+  });
+
   it("rejects unsupported formats", () => {
     expect(() =>
       parseArguments(["--format", "docx", "https://github.com/acme/repo"])

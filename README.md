@@ -31,6 +31,12 @@ Generate a PDF instead of plain text:
 npm run fetch -- --pdf https://github.com/owner/repository
 ```
 
+Select a specific branch or tag (defaults to the repository's default branch when omitted):
+
+```bash
+npm run fetch -- --branch release https://github.com/owner/repository
+```
+
 The CLI will:
 
 - Fetch repository metadata and estimate the number of API requests required
@@ -38,6 +44,7 @@ The CLI will:
 - Prompt for confirmation before downloading blobs
 - Stream progress updates (`current/total`) while downloading and when generating PDFs
 - Resume from previous attempts via cached download checkpoints, so reruns only fetch missing files
+- Export from the requested branch (or the default branch when none is provided) and record both in the output header for traceability
 - Write the final merged output into the `out/` directory as `<repo>-<branch>.txt` or `.pdf`
 
 Tip: use `npm run build` to emit the compiled ESM bundle into `dist/` if you want to run the CLI directly via `node dist/main.js`.
