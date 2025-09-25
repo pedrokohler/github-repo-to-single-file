@@ -49,8 +49,16 @@ describe("text helpers", () => {
     expect(looksTexty("cover.png", bytes)).toBe(false);
     expect(looksTexty("audio.mp3", bytes)).toBe(false);
     expect(looksTexty("scan.dcm", bytes)).toBe(false);
+    expect(looksTexty("diagram.pdf", bytes)).toBe(false);
+    expect(looksTexty("font.woff2", bytes)).toBe(false);
+    expect(looksTexty("video.webm", bytes)).toBe(false);
+    expect(looksTexty("bundle.jar", bytes)).toBe(false);
     expect(hasSkippedExtension("cover.png")).toBe(true);
     expect(hasSkippedExtension("scan.dcm")).toBe(true);
+    expect(hasSkippedExtension("diagram.pdf")).toBe(true);
+    expect(hasSkippedExtension("font.woff2")).toBe(true);
+    expect(hasSkippedExtension("archive.iso")).toBe(true);
+    expect(hasSkippedExtension("bin/app.exe")).toBe(true);
     expect(hasSkippedExtension("package-lock.json")).toBe(true);
     expect(hasSkippedExtension("nested/yarn.lock")).toBe(true);
     expect(hasSkippedExtension("archive.tar.gz")).toBe(true);
