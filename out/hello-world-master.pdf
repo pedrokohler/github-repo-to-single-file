@@ -1,0 +1,177 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 2274 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 40 744 Tm
+12 TL
+(# Repository: michael-reece/hello-world) Tj
+T*
+(# Branch \(default\): master) Tj
+T*
+(# Files included: text-like files up to 5 MB each.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(================================================================================) Tj
+T*
+(FILE: bluestyle.css) Tj
+T*
+(================================================================================) Tj
+T*
+(body) Tj
+T*
+({) Tj
+T*
+(    background-color: lightblue;) Tj
+T*
+(}) Tj
+T*
+() Tj
+T*
+(h1) Tj
+T*
+({) Tj
+T*
+(    color: navy;) Tj
+T*
+(    margin-left: 20px;) Tj
+T*
+(}) Tj
+T*
+() Tj
+T*
+(================================================================================) Tj
+T*
+(FILE: index.htm) Tj
+T*
+(================================================================================) Tj
+T*
+(<!DOCTYPE html>) Tj
+T*
+(<html lang="en">) Tj
+T*
+(    <head>) Tj
+T*
+(        <meta charset="UTF-8"> ) Tj
+T*
+(        <title>Hello World</title>) Tj
+T*
+(        <meta name="viewport" content="width=device-width, initial-scale=1">) Tj
+T*
+(        <link rel="stylesheet" href="bluestyle.css">) Tj
+T*
+(    </head>) Tj
+T*
+(    <body>) Tj
+T*
+(        <h1>Hello World!</h1>) Tj
+T*
+(        <div>) Tj
+T*
+(            <img src="img_hello_world.jpg" alt="Hello World from Space") Tj
+T*
+(                style="width: 100%; max-width: 640px">) Tj
+T*
+(        </div>) Tj
+T*
+(        <p>This is the first file in my W3Schools learning Git repository.</p>) Tj
+T*
+(        <p>This line of code is here to show how merging works...</p>) Tj
+T*
+(        <div>) Tj
+T*
+(            <img src="img_hello_git.jpg" alt="Hello Git" ) Tj
+T*
+(                style="width: 100%; max-width: 640px">) Tj
+T*
+(        </div>) Tj
+T*
+(    </body>) Tj
+T*
+(</html>) Tj
+T*
+() Tj
+T*
+(================================================================================) Tj
+T*
+(FILE: README.md) Tj
+T*
+(================================================================================) Tj
+T*
+(# hello-world) Tj
+T*
+() Tj
+T*
+(Hello World repository for Git tutorial) Tj
+T*
+() Tj
+T*
+(This is an example repository for the Git tutorial on https://www.w3schools.com) Tj
+T*
+() Tj
+T*
+(This tutorial focuses mainly on Git and using GitHub, remotely.) Tj
+T*
+() Tj
+T*
+(This repository is built step by step in the tutorial.) Tj
+T*
+() Tj
+T*
+ET
+endstream
+endobj
+3 0 obj
+<< /Length 223 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 40 744 Tm
+12 TL
+(It now includes steps from the GitHub tutorial, as well.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(# Summary: included=3, skippedBinary=0, skippedLarge=0, skippedExtension=2, total=5) Tj
+T*
+() Tj
+T*
+ET
+endstream
+endobj
+4 0 obj
+<< /Type /Page /Parent 6 0 R /Resources << /Font << /F1 1 0 R >> >> /MediaBox [0 0 612 792] /Contents 2 0 R >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 6 0 R /Resources << /Font << /F1 1 0 R >> >> /MediaBox [0 0 612 792] /Contents 3 0 R >>
+endobj
+6 0 obj
+<< /Type /Pages /Count 2 /Kids [4 0 R 5 0 R] >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000002405 00000 n 
+0000002679 00000 n 
+0000002805 00000 n 
+0000002931 00000 n 
+0000002994 00000 n 
+trailer
+<< /Size 8 /Root 7 0 R >>
+startxref
+3043
+%%EOF
