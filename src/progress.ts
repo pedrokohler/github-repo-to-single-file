@@ -7,6 +7,7 @@ export type ProgressUpdate = {
   total: number;
   path: string;
   state: ProgressState;
+  statusText?: string;
 };
 
 export class ProgressPrinter {
@@ -42,6 +43,8 @@ export class ProgressPrinter {
   update(update: ProgressUpdate): void {
     if (!this.started) return;
     this.processed = update.processed;
+    this.total = Math.max(update.total, this.processed);
+    const previousStatusText = this.lastUpdate?.statusText;
     this.lastUpdate = update;
 
     if (!this.stream.isTTY) {
@@ -54,7 +57,8 @@ export class ProgressPrinter {
     const now = this.now();
     if (
       update.processed < update.total &&
-      now - this.lastRenderTimestamp < PROGRESS_UPDATE_INTERVAL_MS
+      now - this.lastRenderTimestamp < PROGRESS_UPDATE_INTERVAL_MS &&
+      update.statusText === previousStatusText
     ) {
       return;
     }
@@ -81,14 +85,23 @@ export class ProgressPrinter {
   }
 
   private render(force = false): void {
-    const percent = this.total === 0 ? 100 : Math.floor((this.processed / this.total) * 100);
+    const percent =
+      this.total === 0 ? 100 : Math.floor((this.processed / this.total) * 100);
     const barLength = 24;
-    const filledLength = this.total === 0 ? barLength : Math.round((percent / 100) * barLength);
-    const bar = `${"#".repeat(filledLength)}${"-".repeat(barLength - filledLength)}`;
+    const filledLength =
+      this.total === 0 ? barLength : Math.round((percent / 100) * barLength);
+    const bar = `${"#".repeat(filledLength)}${"-".repeat(
+      barLength - filledLength
+    )}`;
     const latestPath = this.lastUpdate?.path ?? "";
     const latestState = this.lastUpdate?.state ?? "pending";
     const summary = `${this.processed}/${this.total}`;
-    const line = `${this.label} [${bar}] ${summary} (${percent}%) ${latestState}: ${latestPath}`;
+
+    const statusTextFromUpdate = this.lastUpdate?.statusText;
+    const statusText =
+      statusTextFromUpdate ?? `${latestState}: ${latestPath}`;
+
+    const line = `${this.label} [${bar}] ${summary} (${percent}%) ${statusText}`;
 
     const width = this.stream.columns ?? line.length;
     const padded = line.padEnd(width);

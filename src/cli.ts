@@ -3,6 +3,10 @@ import { createInterface } from "node:readline/promises";
 import { GitHubClient } from "./github.js";
 import { ProgressPrinter } from "./progress.js";
 import {
+  PdfProgressReporter,
+  type PdfProgressCallbacks,
+} from "./progress/pdfProgressReporter.js";
+import {
   describeOutput,
   exportRepositoryToSingleFile,
   loadRepositoryOutline,
@@ -107,7 +111,6 @@ function logPlanningSummary(
       plannedTotal
     )}`
   );
-  // console.log(`Github core quota: `);
 }
 
 function willExceedQuota(rateLimit: RateLimit, required: number): boolean {
@@ -120,6 +123,15 @@ function warnAboutQuota(rateLimit: RateLimit, required: number): void {
     `Warning: run requires ${required} additional requests,` +
       ` but only ${rateLimit.resources.core.remaining} remain in the quota.`
   );
+}
+
+function createPdfProgressCallbacks(
+  format: OutputFormat
+): PdfProgressCallbacks | undefined {
+  if (format !== "pdf") {
+    return undefined;
+  }
+  return new PdfProgressReporter(new ProgressPrinter());
 }
 
 export function parseArguments(argv: string[]): CliOptions {
@@ -218,25 +230,7 @@ export async function runCli(): Promise<void> {
   const progress = new ProgressPrinter();
   progress.start(eligibleCount, "Downloading");
 
-  const pdfPrinter =
-    options.format === "pdf"
-      ? new ProgressPrinter(undefined, undefined, "Generating PDF")
-      : null;
-
-  const pdfCallbacks = pdfPrinter
-    ? {
-        start: (total: number) => pdfPrinter.start(total, "Generating PDF"),
-        update: (processed: number, total: number) =>
-          pdfPrinter.update({
-            processed,
-            total,
-            path: "",
-            state: "included",
-          }),
-        setTotal: (total: number) => pdfPrinter.setTotal(total),
-        finish: () => pdfPrinter.finish(),
-      }
-    : undefined;
+  const pdfCallbacks = createPdfProgressCallbacks(options.format);
 
   const result = await exportRepositoryToSingleFile(client, outline, {
     onProgress: (update) => progress.update(update),

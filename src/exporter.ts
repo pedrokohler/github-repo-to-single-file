@@ -30,6 +30,10 @@ import {
   writeCachedFile,
 } from "./checkpoint.js";
 import { once } from "node:events";
+import type {
+  PdfProgressCallbacks,
+  PdfProgressStage,
+} from "./progress/pdfProgressReporter.js";
 
 export type ProgressCallback = (args: {
   processed: number;
@@ -50,13 +54,6 @@ export type RepositoryOutline = {
 };
 
 export type OutputFormat = "text" | "pdf";
-
-export type PdfProgressCallbacks = {
-  start: (total: number) => void;
-  update: (processed: number, total: number) => void;
-  finish: () => void;
-  setTotal?: (total: number) => void;
-};
 
 export function parseRepoUrl(input: string): RepoCoordinates {
   try {
@@ -93,9 +90,15 @@ export async function loadRepositoryOutline(
     coordinates.repo
   );
   const branch = repository.default_branch;
-  const tree = await client.getTree(coordinates.owner, coordinates.repo, branch);
+  const tree = await client.getTree(
+    coordinates.owner,
+    coordinates.repo,
+    branch
+  );
   const blobs = tree.tree.filter((entry) => entry.type === "blob");
-  const filteredByExtension = blobs.filter((blob) => !hasSkippedExtension(blob.path));
+  const filteredByExtension = blobs.filter(
+    (blob) => !hasSkippedExtension(blob.path)
+  );
   const extensionSkipped = blobs.length - filteredByExtension.length;
   const eligibleBlobs = filteredByExtension.filter(
     (blob) => typeof blob.size !== "number" || blob.size <= MAX_TEXT_BLOB_BYTES
@@ -128,7 +131,9 @@ async function collectTextFiles(
   options: CollectOptions = {}
 ): Promise<CollectOutcome> {
   const { eligibleBlobs } = outline;
-  const sorted = [...eligibleBlobs].sort((a, b) => a.path.localeCompare(b.path));
+  const sorted = [...eligibleBlobs].sort((a, b) =>
+    a.path.localeCompare(b.path)
+  );
   let processed = 0;
 
   type OutcomeItem =
@@ -138,60 +143,72 @@ async function collectTextFiles(
 
   await ensureWorkDirectory(outline);
 
-  const outcomes = await mapWithConcurrency(sorted, MAX_CONCURRENCY, async (item) => {
-    const cachedContent = await readCachedFile(outline, item.path);
-    if (cachedContent !== null) {
+  const outcomes = await mapWithConcurrency(
+    sorted,
+    MAX_CONCURRENCY,
+    async (item) => {
+      const cachedContent = await readCachedFile(outline, item.path);
+      if (cachedContent !== null) {
+        processed += 1;
+        options.onProgress?.({
+          processed,
+          total: sorted.length,
+          path: item.path,
+          state: "cached",
+        });
+        return {
+          kind: "cached",
+          path: item.path,
+          content: cachedContent,
+        } as OutcomeItem;
+      }
+
+      const blob = await client.getBlob(
+        outline.coordinates.owner,
+        outline.coordinates.repo,
+        item.sha
+      );
+
+      if (blob.encoding !== "base64") {
+        processed += 1;
+        options.onProgress?.({
+          processed,
+          total: sorted.length,
+          path: item.path,
+          state: "skipped",
+        });
+        return { kind: "skipped", path: item.path } as OutcomeItem;
+      }
+
+      const bytes = decodeBase64ToBytes(blob.content);
+      if (!looksTexty(item.path, bytes)) {
+        processed += 1;
+        options.onProgress?.({
+          processed,
+          total: sorted.length,
+          path: item.path,
+          state: "skipped",
+        });
+        return { kind: "skipped", path: item.path } as OutcomeItem;
+      }
+
+      const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      await writeCachedFile(outline, item.path, text);
       processed += 1;
       options.onProgress?.({
         processed,
         total: sorted.length,
         path: item.path,
-        state: "cached",
+        state: "included",
       });
-      return { kind: "cached", path: item.path, content: cachedContent } as OutcomeItem;
-    }
 
-    const blob = await client.getBlob(
-      outline.coordinates.owner,
-      outline.coordinates.repo,
-      item.sha
-    );
-
-    if (blob.encoding !== "base64") {
-      processed += 1;
-      options.onProgress?.({
-        processed,
-        total: sorted.length,
+      return {
+        kind: "included",
         path: item.path,
-        state: "skipped",
-      });
-      return { kind: "skipped", path: item.path } as OutcomeItem;
+        content: text,
+      } as OutcomeItem;
     }
-
-    const bytes = decodeBase64ToBytes(blob.content);
-    if (!looksTexty(item.path, bytes)) {
-      processed += 1;
-      options.onProgress?.({
-        processed,
-        total: sorted.length,
-        path: item.path,
-        state: "skipped",
-      });
-      return { kind: "skipped", path: item.path } as OutcomeItem;
-    }
-
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    await writeCachedFile(outline, item.path, text);
-    processed += 1;
-    options.onProgress?.({
-      processed,
-      total: sorted.length,
-      path: item.path,
-      state: "included",
-    });
-
-    return { kind: "included", path: item.path, content: text } as OutcomeItem;
-  });
+  );
 
   const { files, skippedBinary } = outcomes.reduce(
     (acc, outcome) => {
@@ -281,33 +298,66 @@ async function exportToPdf(
 
   const combined = pieces.join("");
   const estimatedPages = Math.max(estimatePdfPageCount(combined), 1);
-  pdfProgress?.start(estimatedPages);
 
-  let pagesProcessed = 0;
+  // Calculate total progress units: pages + write chunks
+  const CHUNK_SIZE = 64 * 1024;
+  const estimatedSize = combined.length * 1.5; // Rough PDF size estimate
+  const estimatedChunks = Math.max(Math.ceil(estimatedSize / CHUNK_SIZE), 1);
+  const RENDER_STAGE: PdfProgressStage = "render";
+  const WRITE_STAGE: PdfProgressStage = "write";
+
+  pdfProgress?.initialise({
+    renderTotal: estimatedPages,
+    writeTotal: estimatedChunks,
+  });
+
   const renderResult = await renderPdfFromText(combined, {
-    onProgress: ({ processed }) => {
-      pagesProcessed = processed;
-      pdfProgress?.update(processed, estimatedPages);
+    onProgress: ({ processed, total }) => {
+      pdfProgress?.report({
+        stage: RENDER_STAGE,
+        processed,
+        total,
+      });
     },
   });
 
   const { buffer: pdfBuffer, pageCount } = renderResult;
-  const chunkSize = 64 * 1024;
-  const chunkCount = Math.max(Math.ceil(pdfBuffer.length / chunkSize), 1);
-  const totalProgress = pageCount + chunkCount;
-  pdfProgress?.setTotal?.(totalProgress);
-  if (pdfProgress) {
-    pdfProgress.update(pagesProcessed, totalProgress);
-  }
 
-  let processed = pagesProcessed;
-  for (let offset = 0; offset < pdfBuffer.length; offset += chunkSize) {
-    const chunk = pdfBuffer.subarray(offset, Math.min(offset + chunkSize, pdfBuffer.length));
+  pdfProgress?.report({
+    stage: RENDER_STAGE,
+    processed: pageCount,
+    total: pageCount,
+  });
+
+  // Update with actual chunks count
+  const actualChunks = Math.max(Math.ceil(pdfBuffer.length / CHUNK_SIZE), 1);
+  pdfProgress?.report({
+    stage: WRITE_STAGE,
+    processed: 0,
+    total: actualChunks,
+  });
+
+  // Write to disk with progress updates
+  let chunksWritten = 0;
+  for (let offset = 0; offset < pdfBuffer.length; offset += CHUNK_SIZE) {
+    const chunk = pdfBuffer.subarray(
+      offset,
+      Math.min(offset + CHUNK_SIZE, pdfBuffer.length)
+    );
     if (!output.stream.write(chunk)) {
       await once(output.stream, "drain");
     }
-    processed += 1;
-    pdfProgress?.update(processed, totalProgress);
+    chunksWritten += 1;
+    pdfProgress?.report({
+      stage: WRITE_STAGE,
+      processed: chunksWritten,
+      total: actualChunks,
+    });
+
+    // Yield occasionally to keep UI responsive
+    if (chunksWritten % 10 === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -318,8 +368,7 @@ async function exportToPdf(
     output.stream.end();
   });
 
-  pdfProgress?.update(totalProgress, totalProgress);
-  pdfProgress?.finish();
+  pdfProgress?.complete();
 }
 
 type ExportOptions = {
@@ -351,7 +400,9 @@ export async function exportRepositoryToSingleFile(
     };
 
     const extension = format === "pdf" ? "pdf" : "txt";
-    const output = await prepareOutputFile(`${outline.repoName}-${outline.branch}.${extension}`);
+    const output = await prepareOutputFile(
+      `${outline.repoName}-${outline.branch}.${extension}`
+    );
 
     if (format === "pdf") {
       await exportToPdf(output, outline, files, summary, pdfProgress);
