@@ -1,6 +1,5 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import { GitHubClient } from "./github.js";
 import { ProgressPrinter } from "./progress.js";
 import {
   PdfProgressReporter,
@@ -21,9 +20,13 @@ import {
 import type { RateLimit } from "./types.js";
 import { MAX_CONCURRENCY } from "./config.js";
 import { countCachedFiles } from "./checkpoint.js";
+import { 
+  createRepositoryClient,
+  GitHubRepositoryClient
+} from "./repository.js";
 
 export type CliOptions = {
-  repoUrl: string;
+  input: string;
   format: OutputFormat;
   branch?: string;
 };
@@ -73,12 +76,17 @@ function logOutlineDetails(
   cachedEligible: number,
   pendingDownloads: number
 ): void {
-  console.log(`Repository: ${outline.coordinates.owner}/${outline.repoName}`);
-  const branchDetail =
-    outline.branch === outline.defaultBranch
-      ? `${outline.branch} (default)`
-      : `${outline.branch} (default: ${outline.defaultBranch})`;
-  console.log(`Branch: ${branchDetail}`);
+  if (outline.source === "local") {
+    console.log(`Repository: ${outline.repoName} (local: ${outline.localPath})`);
+  } else {
+    console.log(`Repository: ${outline.coordinates?.owner}/${outline.repoName}`);
+    const branchDetail =
+      outline.branch === outline.defaultBranch
+        ? `${outline.branch} (default)`
+        : `${outline.branch} (default: ${outline.defaultBranch})`;
+    console.log(`Branch: ${branchDetail}`);
+  }
+  
   console.log(
     `Discovered ${outline.blobs.length} blobs (` +
       `${outline.eligibleBlobs.length} candidates, ` +
@@ -186,12 +194,12 @@ export function parseArguments(argv: string[]): CliOptions {
 
   if (positional.length === 0) {
     throw new Error(
-      "Usage: npm run fetch -- [--pdf|--format=pdf] https://github.com/owner/repo"
+      "Usage: npm run fetch -- [--pdf|--format=pdf] <github-url-or-local-path>"
     );
   }
 
   return {
-    repoUrl: positional[0],
+    input: positional[0],
     format,
     branch,
   };
@@ -208,13 +216,12 @@ export async function runCli(): Promise<void> {
   }
 
   const token = resolveGitHubToken();
-  const client = new GitHubClient(token);
+  const client = await createRepositoryClient(options.input, token);
 
   console.log("Preparing repository outline...");
-  const outline = await loadRepositoryOutline(client, options.repoUrl, {
+  const outline = await loadRepositoryOutline(client, {
     branch: options.branch,
   });
-  const rateLimit = await client.getRateLimit();
 
   const cachedEligible = await countCachedFiles(
     outline,
@@ -228,27 +235,35 @@ export async function runCli(): Promise<void> {
   logOutlineDetails(outline, cachedEligible, pendingDownloads);
 
   const eligibleCount = outline.eligibleBlobs.length;
-  const plannedTotal = calculatePlannedRequestTotal(pendingDownloads);
-  const durationSeconds = estimateDurationSeconds(pendingDownloads);
 
-  logPlanningSummary(
-    eligibleCount,
-    cachedEligible,
-    pendingDownloads,
-    plannedTotal,
-    durationSeconds,
-    rateLimit
-  );
-  warnAboutQuota(rateLimit, pendingDownloads);
+  if (client instanceof GitHubRepositoryClient) {
+    const rateLimit = await client.getRateLimit();
+    const plannedTotal = calculatePlannedRequestTotal(pendingDownloads);
+    const durationSeconds = estimateDurationSeconds(pendingDownloads);
 
-  const proceed = await promptForConfirmation("Proceed with download? [y/N]");
+    logPlanningSummary(
+      eligibleCount,
+      cachedEligible,
+      pendingDownloads,
+      plannedTotal,
+      durationSeconds,
+      rateLimit
+    );
+    warnAboutQuota(rateLimit, pendingDownloads);
+  } else {
+    console.log(
+      `Files to process: ${eligibleCount} (${cachedEligible} cached, ${pendingDownloads} to read)`
+    );
+  }
+
+  const proceed = await promptForConfirmation("Proceed? [y/N]");
   if (!proceed) {
     console.log("Aborted by user.");
     return;
   }
 
   const progress = new ProgressPrinter();
-  progress.start(eligibleCount, "Downloading");
+  progress.start(eligibleCount, outline.source === "local" ? "Processing" : "Downloading");
 
   const pdfCallbacks = createPdfProgressCallbacks(options.format);
 

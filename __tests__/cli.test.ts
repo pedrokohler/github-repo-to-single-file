@@ -2,12 +2,23 @@ import { describeOutput } from "../src/exporter.js";
 import { parseArguments } from "../src/cli.js";
 
 describe("parseArguments", () => {
-  it("requires a repository URL", () => {
+  it("requires an input (URL or path)", () => {
     expect(() => parseArguments([])).toThrow(/Usage/);
   });
 
   it("defaults to text format", () => {
     expect(parseArguments(["https://github.com/acme/repo"]).format).toBe("text");
+  });
+
+  it("accepts GitHub URLs", () => {
+    expect(parseArguments(["https://github.com/acme/repo"]).input).toBe(
+      "https://github.com/acme/repo"
+    );
+  });
+
+  it("accepts local paths", () => {
+    expect(parseArguments(["./my-project"]).input).toBe("./my-project");
+    expect(parseArguments(["/absolute/path"]).input).toBe("/absolute/path");
   });
 
   it("accepts the --pdf shorthand", () => {

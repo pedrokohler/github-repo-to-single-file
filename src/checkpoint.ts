@@ -3,7 +3,8 @@ import { mkdir, readFile, rm, writeFile, stat } from "node:fs/promises";
 import { OUT_DIR } from "./config.js";
 
 type RepoIdentity = {
-  coordinates: { owner: string };
+  coordinates?: { owner: string };
+  localPath?: string;
   repoName: string;
   branch: string;
 };
@@ -15,7 +16,15 @@ function sanitizeSegment(value: string): string {
 }
 
 function workDirectoryFor(outline: RepoIdentity): string {
-  const owner = sanitizeSegment(outline.coordinates.owner);
+  if (outline.localPath) {
+    // For local repositories, use a hash or sanitized path
+    const sanitizedPath = sanitizeSegment(outline.localPath);
+    const repo = sanitizeSegment(outline.repoName);
+    return join(OUT_DIR, WORK_SUBDIR, `local--${repo}--${sanitizedPath}`);
+  }
+  
+  // For GitHub repositories
+  const owner = sanitizeSegment(outline.coordinates!.owner);
   const repo = sanitizeSegment(outline.repoName);
   const branch = sanitizeSegment(outline.branch);
   return join(OUT_DIR, WORK_SUBDIR, `${owner}--${repo}--${branch}`);
