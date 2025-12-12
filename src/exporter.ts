@@ -1,7 +1,6 @@
 import { basename } from "node:path";
 import { MAX_CONCURRENCY, MAX_TEXT_BLOB_BYTES } from "./config.js";
 import { mapWithConcurrency } from "./concurrency.js";
-import { GitHubClient } from "./github.js";
 import {
   closeStream,
   prepareOutputFile,
@@ -19,7 +18,6 @@ import type {
   ExportSummary,
   FileExport,
   GitTreeItem,
-  GitTreeResponse,
   RepoCoordinates,
 } from "./types.js";
 import type { ProgressState } from "./progress.js";
@@ -35,6 +33,7 @@ import type {
   PdfProgressCallbacks,
   PdfProgressStage,
 } from "./progress/pdfProgressReporter.js";
+import type { IRepositoryClient } from "./repository.js";
 
 export type ProgressCallback = (args: {
   processed: number;
@@ -44,7 +43,8 @@ export type ProgressCallback = (args: {
 }) => void;
 
 export type RepositoryOutline = {
-  coordinates: RepoCoordinates;
+  coordinates?: RepoCoordinates;
+  localPath?: string;
   repoName: string;
   defaultBranch: string;
   branch: string;
@@ -53,6 +53,7 @@ export type RepositoryOutline = {
   skippedLarge: number;
   skippedExtension: number;
   treeTruncated: boolean;
+  source: "github" | "local";
 };
 
 export type OutputFormat = "text" | "pdf";
@@ -61,63 +62,34 @@ export type LoadRepositoryOutlineOptions = {
   branch?: string;
 };
 
-export function parseRepoUrl(input: string): RepoCoordinates {
-  try {
-    const url = new URL(input);
-    if (url.hostname !== "github.com") {
-      throw new Error("Repository must be hosted on github.com");
-    }
-
-    const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
-    if (segments.length < 2) {
-      throw new Error("Expected URL in the form https://github.com/owner/repo");
-    }
-
-    const [owner, rawRepo] = segments;
-    const repo = rawRepo.replace(/\.git$/i, "");
-    if (!owner || !repo) {
-      throw new Error("Repository owner and name must both be present");
-    }
-
-    return { owner, repo };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid GitHub URL: ${message}`);
-  }
-}
-
 export async function loadRepositoryOutline(
-  client: GitHubClient,
-  repoUrl: string,
+  client: IRepositoryClient,
   options: LoadRepositoryOutlineOptions = {}
 ): Promise<RepositoryOutline> {
-  const coordinates = parseRepoUrl(repoUrl);
-  const repository = await client.getRepository(
-    coordinates.owner,
-    coordinates.repo
-  );
+  const info = await client.getInfo();
   const sanitizedBranch = options.branch?.trim();
   if (sanitizedBranch !== undefined && sanitizedBranch.length === 0) {
     throw new Error("Branch name cannot be empty");
   }
-  const branch = sanitizedBranch ?? repository.default_branch;
-  let tree: GitTreeResponse;
+  const branch = sanitizedBranch ?? info.defaultBranch;
+  
+  let treeResult: { tree: GitTreeItem[]; truncated: boolean };
   try {
-    tree = await client.getTree(
-      coordinates.owner,
-      coordinates.repo,
-      branch
-    );
+    treeResult = await client.getTree(branch);
   } catch (error) {
     if (sanitizedBranch !== undefined) {
       const message = error instanceof Error ? error.message : String(error);
+      const repoDesc = info.coordinates 
+        ? `${info.coordinates.owner}/${info.coordinates.repo}`
+        : info.name;
       throw new Error(
-        `Failed to load branch "${branch}" for ${coordinates.owner}/${coordinates.repo}: ${message}`
+        `Failed to load branch "${branch}" for ${repoDesc}: ${message}`
       );
     }
     throw error instanceof Error ? error : new Error(String(error));
   }
-  const blobs = tree.tree.filter((entry) => entry.type === "blob");
+  
+  const blobs = treeResult.tree.filter((entry) => entry.type === "blob");
   const filteredByExtension = blobs.filter(
     (blob) => !hasSkippedExtension(blob.path)
   );
@@ -127,15 +99,17 @@ export async function loadRepositoryOutline(
   );
 
   return {
-    coordinates,
-    repoName: repository.name,
-    defaultBranch: repository.default_branch,
+    coordinates: info.coordinates,
+    localPath: info.localPath,
+    repoName: info.name,
+    defaultBranch: info.defaultBranch,
     branch,
     blobs,
     eligibleBlobs,
     skippedLarge: filteredByExtension.length - eligibleBlobs.length,
     skippedExtension: extensionSkipped,
-    treeTruncated: Boolean(tree.truncated),
+    treeTruncated: Boolean(treeResult.truncated),
+    source: client.getSource(),
   };
 }
 
@@ -149,7 +123,7 @@ type CollectOutcome = {
 };
 
 async function collectTextFiles(
-  client: GitHubClient,
+  client: IRepositoryClient,
   outline: RepositoryOutline,
   options: CollectOptions = {}
 ): Promise<CollectOutcome> {
@@ -186,11 +160,7 @@ async function collectTextFiles(
         } as OutcomeItem;
       }
 
-      const blob = await client.getBlob(
-        outline.coordinates.owner,
-        outline.coordinates.repo,
-        item.sha
-      );
+      const blob = await client.getBlob(item.sha);
 
       if (blob.encoding !== "base64") {
         processed += 1;
@@ -249,12 +219,18 @@ async function collectTextFiles(
 }
 
 function buildHeader(outline: RepositoryOutline): string {
-  const branchLine =
-    outline.branch === outline.defaultBranch
-      ? `# Branch (default): ${outline.branch}\n`
-      : `# Branch: ${outline.branch} (default: ${outline.defaultBranch})\n`;
+  const repoLine = outline.source === "local"
+    ? `# Repository: ${outline.repoName} (local: ${outline.localPath})\n`
+    : `# Repository: ${outline.coordinates?.owner}/${outline.repoName}\n`;
+    
+  const branchLine = outline.source === "local"
+    ? ""
+    : (outline.branch === outline.defaultBranch
+        ? `# Branch (default): ${outline.branch}\n`
+        : `# Branch: ${outline.branch} (default: ${outline.defaultBranch})\n`);
+        
   return (
-    `# Repository: ${outline.coordinates.owner}/${outline.repoName}\n` +
+    repoLine +
     branchLine +
     `# Files included: text-like files up to ${Math.round(
       MAX_TEXT_BLOB_BYTES / 1024 / 1024
@@ -405,7 +381,7 @@ type ExportOptions = {
 };
 
 export async function exportRepositoryToSingleFile(
-  client: GitHubClient,
+  client: IRepositoryClient,
   outline: RepositoryOutline,
   options: ExportOptions = {}
 ): Promise<ExportResult> {

@@ -1,5 +1,5 @@
 import { Writable } from "node:stream";
-import { parseRepoUrl } from "../src/exporter.js";
+import { parseRepoUrl } from "../src/repository.js";
 import {
   decodeBase64ToBytes,
   looksTexty,

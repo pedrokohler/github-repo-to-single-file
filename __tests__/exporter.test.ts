@@ -1,15 +1,13 @@
 import { loadRepositoryOutline } from "../src/exporter.js";
-import type { GitHubClient } from "../src/github.js";
+import type { IRepositoryClient, RepositoryInfo } from "../src/repository.js";
 import type {
   GitTreeItem,
-  GitTreeResponse,
-  RepoResponse,
 } from "../src/types.js";
 
-const repoResponse: RepoResponse = {
-  default_branch: "main",
+const repoInfo: RepositoryInfo = {
+  defaultBranch: "main",
   name: "sample-repo",
-  owner: { login: "acme" },
+  coordinates: { owner: "acme", repo: "sample-repo" },
 };
 
 const treeEntries: GitTreeItem[] = [
@@ -31,37 +29,38 @@ const treeEntries: GitTreeItem[] = [
   },
 ];
 
-function createTreeResponse(): GitTreeResponse {
+function createTreeResponse() {
   return {
-    sha: "tree-sha",
-    truncated: false,
     tree: treeEntries,
+    truncated: false,
   };
 }
 
 function createClient(overrides: {
-  getRepository?: jest.Mock;
+  getInfo?: jest.Mock;
   getTree?: jest.Mock;
-} = {}): { client: GitHubClient; getRepository: jest.Mock; getTree: jest.Mock } {
-  const getRepository =
-    overrides.getRepository ?? jest.fn(async () => repoResponse);
+} = {}): { client: IRepositoryClient; getInfo: jest.Mock; getTree: jest.Mock } {
+  const getInfo =
+    overrides.getInfo ?? jest.fn(async () => repoInfo);
   const getTree = overrides.getTree ?? jest.fn(async () => createTreeResponse());
+  const getBlob = jest.fn();
+  const getSource = jest.fn(() => "github" as const);
   const client = {
-    getRepository,
+    getInfo,
     getTree,
-  } as unknown as GitHubClient;
-  return { client, getRepository, getTree };
+    getBlob,
+    getSource,
+  } as unknown as IRepositoryClient;
+  return { client, getInfo, getTree };
 }
 
 describe("loadRepositoryOutline", () => {
-  const repoUrl = "https://github.com/acme/sample-repo";
-
   it("uses the repository's default branch when none is specified", async () => {
     const { client, getTree } = createClient();
 
-    const outline = await loadRepositoryOutline(client, repoUrl);
+    const outline = await loadRepositoryOutline(client);
 
-    expect(getTree).toHaveBeenCalledWith("acme", "sample-repo", "main");
+    expect(getTree).toHaveBeenCalledWith("main");
     expect(outline.branch).toBe("main");
     expect(outline.defaultBranch).toBe("main");
   });
@@ -69,15 +68,11 @@ describe("loadRepositoryOutline", () => {
   it("respects an explicit branch selection", async () => {
     const { client, getTree } = createClient();
 
-    const outline = await loadRepositoryOutline(client, repoUrl, {
+    const outline = await loadRepositoryOutline(client, {
       branch: "feature/new-ui",
     });
 
-    expect(getTree).toHaveBeenCalledWith(
-      "acme",
-      "sample-repo",
-      "feature/new-ui"
-    );
+    expect(getTree).toHaveBeenCalledWith("feature/new-ui");
     expect(outline.branch).toBe("feature/new-ui");
     expect(outline.defaultBranch).toBe("main");
   });
@@ -86,10 +81,10 @@ describe("loadRepositoryOutline", () => {
     const { client } = createClient();
 
     await expect(
-      loadRepositoryOutline(client, repoUrl, { branch: "  " })
+      loadRepositoryOutline(client, { branch: "  " })
     ).rejects.toThrow("Branch name cannot be empty");
 
-    const outline = await loadRepositoryOutline(client, repoUrl, {
+    const outline = await loadRepositoryOutline(client, {
       branch: " feature/new-ui ",
     });
     expect(outline.branch).toBe("feature/new-ui");
@@ -102,7 +97,7 @@ describe("loadRepositoryOutline", () => {
     const { client } = createClient({ getTree: failingTree });
 
     await expect(
-      loadRepositoryOutline(client, repoUrl, { branch: "missing" })
+      loadRepositoryOutline(client, { branch: "missing" })
     ).rejects.toThrow(
       'Failed to load branch "missing" for acme/sample-repo: Not Found'
     );

@@ -9,13 +9,8 @@ export function ensureEnvironment(): void {
   }
 }
 
-export function resolveGitHubToken(): string {
+export function resolveGitHubToken(): string | undefined {
   ensureEnvironment();
   const token = process.env.GITHUB_TOKEN?.trim();
-  if (!token) {
-    throw new Error(
-      "Missing GITHUB_TOKEN. Add it to your .env file and rerun the script."
-    );
-  }
-  return token;
+  return token || undefined;
 }
